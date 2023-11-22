@@ -19,6 +19,8 @@ import torch.nn.functional as F
 import torchvision
 from torchvision import datasets
 import torchvision.transforms as transforms
+from torch.ao.quantization import get_default_qconfig, QConfigMapping
+from torch.ao.quantization.quantize_fx import prepare_fx, convert_fx, fuse_fx
 
 import torch.nn as nn
 import torch
@@ -197,11 +199,11 @@ gpu = args.device
 use_float16 = args.float16
 override_prev_results = args.override
 project_name = args.project
-weights_path = f'/content/QAT_ED_PyTorch/weights/efficientdet-d0.pth' if args.weights is None else args.weights
+weights_path = f'/content/FX_QAT_Efficientdet/weights/efficientdet-d0.pth' if args.weights is None else args.weights
 
 #print(f'running coco-style evaluation on project {project_name}, weights {weights_path}...')
 
-params = yaml.safe_load(open(f'/content/QAT_ED_PyTorch/projects/coco.yml'))
+params = yaml.safe_load(open(f'/content/FX_QAT_Efficientdet/projects/coco.yml'))
 obj_list = params['obj_list']
 
 input_sizes = [512, 640, 768, 896, 1024, 1280, 1280, 1536, 1536]
@@ -221,7 +223,7 @@ def evaluate_coco(img_path, set_name, image_ids, coco, model, threshold=0.05):
         x = torch.from_numpy(framed_imgs[0])
 
         if use_cuda:
-            x = x
+            x = x.cuda()
             if use_float16:
                 x = x.half()
             else:
@@ -296,7 +298,7 @@ class Params:
         return self.params.get(item, None)
   
 def load_model(model_file):
-    params = Params(f'/content/QAT_ED_PyTorch/projects/coco.yml')
+    params = Params(f'/content/FX_QAT_Efficientdet/projects/coco.yml')
     model = EfficientDetBackbone(num_classes=len(params.obj_list),compound_coef=0,ratios=eval(params.anchors_ratios), scales=eval(params.anchors_scales))
     model.load_state_dict(torch.load(model_file, map_location=torch.device('cpu')))
     model.requires_grad_(False)
@@ -338,25 +340,25 @@ def prepare_data_loaders(data_path):
 
     return data_loader, data_loader_test
 
-data_path = '/content/QAT_ED_PyTorch/datasets/coco'
-saved_model_dir = '/content/QAT_ED_PyTorch/weights'
+data_path = '/content/FX_QAT_Efficientdet/datasets/coco'
+saved_model_dir = '/content/FX_QAT_Efficientdet/weights'
 float_model_file = '/efficientdet-d0.pth'
 scripted_float_model_file = 'efficientdet_quantization_scripted.pth'
 scripted_quantized_model_file = 'efficientdet_quantization_scripted_quantized.pth'
 SET_NAME = params['val_set']
-VAL_GT = f'/content/QAT_ED_PyTorch/datasets/coco/annotations/instances_val2017.json'
-VAL_IMGS = f'/content/QAT_ED_PyTorch/datasets/coco/val2017/'
+VAL_GT = f'/content/FX_QAT_Efficientdet/datasets/coco/annotations/instances_val2017.json'
+VAL_IMGS = f'/content/FX_QAT_Efficientdet/datasets/coco/val2017/'
 MAX_IMAGES = 10000
 coco_gt = COCO(VAL_GT)
 image_ids = coco_gt.getImgIds()[:MAX_IMAGES]
 
 data_loader, data_loader_test = prepare_data_loaders(data_path)
-example_inputs = (next(iter(data_loader))[0])
+
 criterion = nn.CrossEntropyLoss()
 float_model = load_model(saved_model_dir+float_model_file).to('cpu')
 
 if use_cuda:
-      float_model
+      float_model.cuda()
 
       if use_float16:
         float_model.half()
@@ -372,9 +374,9 @@ qconfig = get_default_qconfig("x86")
 qconfig_mapping = QConfigMapping().set_global(qconfig)
 
 
-prepared_model = prepare_fx(model_to_quantize, qconfig_mapping, example_inputs)
+prepared_model = prepare_fx(model_to_quantize, qconfig_mapping, image_ids)
 
-prepared_model = prepare_fx(model_to_quantize, qconfig_mapping, example_inputs)
+prepared_model = prepare_fx(model_to_quantize, qconfig_mapping, image_ids)
 print(prepared_model.graph)
 
 def calibrate(model, data_loader):
@@ -391,7 +393,11 @@ print("Size of model before quantization")
 print_size_of_model(float_model)
 print("Size of model after quantization")
 print_size_of_model(quantized_model)
-evaluate(quantized_model, criterion, data_loader_test)
+if override_prev_results or not os.path.exists(f'{SET_NAME}_bbox_results.json'):
+      evaluate_coco(VAL_IMGS, SET_NAME, image_ids, coco_gt, float_model)
+    
+
+_eval(coco_gt, image_ids, f'{SET_NAME}_bbox_results.json')
 
 fx_graph_mode_model_file_path = saved_model_dir + "efficientdet_fx_graph_mode_quantized.pth"
 
@@ -413,8 +419,8 @@ fx_graph_mode_model_file_path = saved_model_dir + "efficientdet_fx_graph_mode_qu
 torch.jit.save(torch.jit.script(quantized_model), fx_graph_mode_model_file_path)
 loaded_quantized_model = torch.jit.load(fx_graph_mode_model_file_path)
 
-evaluate(loaded_quantized_model, criterion, data_loader_test)
+if override_prev_results or not os.path.exists(f'{SET_NAME}_bbox_results.json'):
+      evaluate_coco(VAL_IMGS, SET_NAME, image_ids, coco_gt, float_model)
+    
 
-
-
-
+_eval(coco_gt, image_ids, f'{SET_NAME}_bbox_results.json')
