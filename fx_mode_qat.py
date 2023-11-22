@@ -33,7 +33,7 @@ from efficientnet import EfficientNet
 from efficientnet.utils import MemoryEfficientSwish, Swish
 from efficientdet.dataset import CocoDataset, Resizer, Normalizer, Augmenter, collater
 from utils.utils import replace_w_sync_bn, CustomDataParallel, get_last_weights, init_weights, boolean_string
-from efficientdet.model import BiFPN, Regressor, QAT_Classifier, EfficientNet
+from efficientdet.model import BiFPN, Regressor, Classifier, EfficientNet
 from efficientdet.utils import Anchors
 from efficientnet.utils_extra import Conv2dStaticSamePadding, MaxPool2dStaticSamePadding
 
@@ -142,7 +142,7 @@ class EfficientDetBackbone(nn.Module):
         self.regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
                                    num_layers=self.box_class_repeats[self.compound_coef],
                                    pyramid_levels=self.pyramid_levels[self.compound_coef])
-        self.classifier = QAT_Classifier(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
+        self.classifier = Classifier(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
                                      num_classes=num_classes,
                                      num_layers=self.box_class_repeats[self.compound_coef],
                                      pyramid_levels=self.pyramid_levels[self.compound_coef])
