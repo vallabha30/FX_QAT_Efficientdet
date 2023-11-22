@@ -376,7 +376,6 @@ qconfig_mapping = QConfigMapping().set_global(qconfig)
 
 prepared_model = prepare_fx(model_to_quantize, qconfig_mapping, image_ids)
 
-prepared_model = prepare_fx(model_to_quantize, qconfig_mapping, image_ids)
 print(prepared_model.graph)
 
 def calibrate(model, data_loader):
